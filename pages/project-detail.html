@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>项目详情</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="project-list.html" class="navbar-back">←</a>
+      <div class="navbar-title">项目详情</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="navbar-action" id="editLink" style="display:none"><a href="#" id="editHref" style="text-decoration:none;color:#1677ff">编辑</a></span>
+    </div>
+  </nav>
+
+  <div class="main-content" id="detailContent">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- 底部操作区 -->
+  <div class="bottom-bar" id="bottomActions"></div>
+
+  <!-- 状态更新弹窗 -->
+  <div class="modal-overlay" id="statusModal">
+    <div class="modal-content" id="statusModalContent"></div>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('id');
+    const project = MOCK.projects.find(p => p.id === projectId);
+
+    if (!project) {
+      document.getElementById('detailContent').innerHTML = renderEmpty('项目不存在');
+    } else {
+      renderDetail();
+    }
+
+    function renderDetail() {
+      const nodes = getNodesWithOverdue(project);
+      const totalAmount = getProjectTotalAmount(project);
+      const receivedAmount = getProjectReceivedAmount(project);
+
+      // 基础信息
+      const section1 = `
+        <div class="detail-section">
+          <div class="detail-section-title">基础信息</div>
+          <div class="detail-row"><span class="detail-label">项目编号</span><span class="detail-value">${project.projectNo}</span></div>
+          <div class="detail-row"><span class="detail-label">项目名称</span><span class="detail-value" style="font-weight:500">${project.projectName}</span></div>
+          <div class="detail-row"><span class="detail-label">区域</span><span class="detail-value">${project.region}</span></div>
+          <div class="detail-row"><span class="detail-label">项目类型</span><span class="detail-value">${getProjectTypeTag(project.projectType)}</span></div>
+          <div class="detail-row"><span class="detail-label">合同文件</span><span class="detail-value" style="color:#1677ff;cursor:pointer" onclick="showToast('模拟查看文件：${project.contractFile || '-'}')">📄 ${project.contractFile || '-'}</span></div>
+          <div class="detail-row"><span class="detail-label">催收负责人</span><span class="detail-value">${getUserName(project.collector)}</span></div>
+          <div class="detail-row"><span class="detail-label">应收总额</span><span class="detail-value" style="font-size:18px;font-weight:700;color:#1677ff">¥${formatMoney(totalAmount)}</span></div>
+          <div class="detail-row"><span class="detail-label">已到账</span><span class="detail-value">¥${formatMoney(receivedAmount)}</span></div>
+          <div class="detail-row"><span class="detail-label">待回款</span><span class="detail-value" style="color:#ff4d4f;font-weight:500">¥${formatMoney(totalAmount - receivedAmount)}</span></div>
+          <div class="detail-row"><span class="detail-label">备注说明</span><span class="detail-value">${project.remark || '-'}</span></div>
+        </div>`;
+
+      // 收款节点列表
+      const nodesSection = `
+        <div class="detail-section">
+          <div class="detail-section-title">收款节点（${nodes.length}个）</div>
+          ${nodes.map((n, idx) => {
+            const hasDelay = MOCK.delayApprovals.some(a => a.nodeId === n.id && a.status === '已通过');
+            return `
+            <div class="node-card ${n.overdueStatus === '已逾期' ? 'overdue' : ''}">
+              <div class="node-header">
+                <span class="node-title">第${idx + 1}期 ${hasDelay ? '<span class="node-delay-tag">已延期</span>' : ''}</span>
+                <div style="display:flex;gap:4px">
+                  ${getCollectStatusTag(n.collectStatus)}
+                  ${getOverdueStatusTag(n.overdueStatus)}
+                </div>
+              </div>
+              <div class="node-row"><span style="color:#999">应收金额</span><span class="node-amount">¥${formatMoney(n.amount)}</span></div>
+              <div class="node-row"><span style="color:#999">计划收款时间</span><span>${formatDate(n.planDate)}</span></div>
+              ${n.collectStatus === '已回款' ? `
+                <div class="node-row"><span style="color:#999">到账金额</span><span style="color:#52c41a;font-weight:500">¥${formatMoney(n.receivedAmount)}</span></div>
+                <div class="node-row"><span style="color:#999">到账时间</span><span>${formatDate(n.receivedDate)}</span></div>
+              ` : ''}
+              <div class="node-row"><span style="color:#999">差额</span><span style="color:${(n.amount - (n.receivedAmount || 0)) > 0 ? '#ff4d4f' : '#52c41a'};font-weight:500">¥${formatMoney(n.amount - (n.receivedAmount || 0))}</span></div>
+              ${n.collectStatus === '待回款' ? `
+                <div style="margin-top:8px;display:flex;gap:6px">
+                  <button class="btn btn-primary btn-sm" onclick="openStatusModal('${n.id}','paid')">登记回款</button>
+                  ${user.role === 'admin' ? `<button class="btn btn-outline btn-sm" onclick="openStatusModal('${n.id}','bad')">坏账关闭</button>` : ''}
+                </div>` : ''}
+              ${n.collectStatus === '坏账关闭' && user.role === 'admin' ? `
+                <div style="margin-top:8px">
+                  <button class="btn btn-outline btn-sm" onclick="openStatusModal('${n.id}','reopen')">重新打开</button>
+                </div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>`;
+
+      // 延期审批记录
+      const approvals = MOCK.delayApprovals.filter(a => a.projectId === projectId);
+      const approvalSection = approvals.length > 0 ? `
+        <div class="detail-section">
+          <div class="detail-section-title">延期审批记录（${approvals.length}条）</div>
+          ${approvals.map(a => `
+            <div style="background:#f7f8fa;border-radius:8px;padding:12px;margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-size:13px;font-weight:500">${a.nodeInfo}</span>
+                ${getApprovalStatusTag(a.status)}
+              </div>
+              <div class="detail-row"><span class="detail-label">申请原因</span><span class="detail-value">${a.reason}</span></div>
+              ${a.opinion ? `<div class="detail-row"><span class="detail-label">审批意见</span><span class="detail-value">${a.opinion}</span></div>` : ''}
+              <div class="detail-row"><span class="detail-label">原计划时间</span><span class="detail-value">${formatDate(a.originalDate)}</span></div>
+              <div class="detail-row"><span class="detail-label">延期后时间</span><span class="detail-value" style="color:#fa8c16;font-weight:500">${formatDate(a.newDate)}</span></div>
+              ${a.approverName ? `<div class="detail-row"><span class="detail-label">审批人</span><span class="detail-value">${a.approverName}</span></div>` : ''}
+              ${a.approvalTime ? `<div class="detail-row"><span class="detail-label">审批时间</span><span class="detail-value">${a.approvalTime}</span></div>` : ''}
+            </div>
+          `).join('')}
+        </div>` : '';
+
+      // 操作日志时间线
+      const records = MOCK.collectRecords.filter(r => r.projectId === projectId);
+      const typeClass = { '催收': '', '状态变更': 'green', '延期': 'orange', '到账': 'green' };
+      const logSection = `
+        <div class="detail-section">
+          <div class="detail-section-title">操作日志</div>
+          ${records.length > 0 ? `
+            <div class="timeline">
+              ${records.map(r => `
+                <div class="timeline-item ${typeClass[r.type] || ''}">
+                  <div class="timeline-time">${r.time}</div>
+                  <div class="timeline-content">[${r.type}] ${r.content}<br><span style="font-size:11px;color:#999">操作人：${getUserName(r.operator)}</span></div>
+                </div>
+              `).join('')}
+            </div>
+          ` : renderEmpty('暂无操作日志')}
+        </div>`;
+
+      document.getElementById('detailContent').innerHTML = section1 + nodesSection + approvalSection + logSection;
+
+      // 编辑链接（管理员可见）
+      if (user.role === 'admin') {
+        document.getElementById('editLink').style.display = 'block';
+        document.getElementById('editHref').href = 'project-edit.html?id=' + project.id;
+      }
+
+      renderActions();
+    }
+
+    function renderActions() {
+      const bar = document.getElementById('bottomActions');
+      const pendingNodes = (project.nodes || []).filter(n => n.collectStatus === '待回款');
+      let html = '';
+
+      if (user.role === 'salesman' && pendingNodes.length > 0) {
+        html += `<button class="btn btn-warning" onclick="openDelayApply()">申请延期（${pendingNodes.length}个节点）</button>`;
+      }
+      if (user.role === 'admin') {
+        html += `<a class="btn btn-outline" href="project-edit.html?id=${project.id}" style="text-decoration:none;flex:1;text-align:center">编辑项目</a>`;
+        html += `<a class="btn btn-outline" href="delay-list.html?projectId=${project.id}" style="text-decoration:none;flex:1;text-align:center">查看审批</a>`;
+      }
+
+      bar.innerHTML = html || '<span style="width:100%;text-align:center;color:#999;font-size:13px">— 底部操作区 —</span>';
+    }
+
+    function toggleDetailNodeFields(nodeId, checkbox) {
+      const fields = document.getElementById('detailFields_' + nodeId);
+      if (fields) {
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+      }
+    }
+
+    function openDelayApply() {
+      const pendingNodes = (project.nodes || []).filter(n => n.collectStatus === '待回款');
+      if (pendingNodes.length === 0) {
+        showToast('没有可申请延期的节点');
+        return;
+      }
+
+      const modal = document.getElementById('statusModalContent');
+      modal.innerHTML = `
+        <div class="modal-title">申请延期</div>
+        <form onsubmit="submitDelay(event)">
+          <div class="form-group">
+            <label class="form-label required">选择收款节点（可多选，每个节点需单独填写延期信息）</label>
+            <div style="background:#f7f8fa;border-radius:8px;padding:8px">
+              ${pendingNodes.map(n => `
+                <div class="delay-node-item" style="border-bottom:1px solid #eee;padding:8px 0" data-node-id="${n.id}">
+                  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:0">
+                    <input type="checkbox" name="delayNode" value="${n.id}" onchange="toggleDetailNodeFields('${n.id}', this)" style="accent-color:#1677ff">
+                    <span style="flex:1">${n.planDate} — ¥${formatMoney(n.amount)}</span>
+                  </label>
+                  <div class="delay-node-fields" id="detailFields_${n.id}" style="display:none;margin-top:8px;padding-left:24px">
+                    <div class="form-group" style="margin-bottom:8px">
+                      <label class="form-label" style="font-size:12px">延期后时间 <span style="color:#ff4d4f">*</span></label>
+                      <input class="form-input detail-delay-date" type="date" style="font-size:13px;padding:8px 10px" data-node="${n.id}" data-required>
+                      <div class="form-error">请选择延期后时间</div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                      <label class="form-label" style="font-size:12px">申请原因 <span style="color:#ff4d4f">*</span></label>
+                      <textarea class="form-textarea detail-delay-reason" style="font-size:13px;min-height:60px" placeholder="请说明该节点延期原因" data-node="${n.id}" data-required></textarea>
+                      <div class="form-error">请填写申请原因</div>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="form-error" id="nodeError">请至少选择一个节点</div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">提交申请</button>
+        </form>
+        <div style="text-align:center;margin-top:10px">
+          <span style="color:#999;font-size:13px;cursor:pointer" onclick="closeModal('statusModal')">取消</span>
+        </div>
+      `;
+      openModal('statusModal');
+    }
+
+    function submitDelay(e) {
+      e.preventDefault();
+      const form = e.target;
+
+      const checkedNodes = form.querySelectorAll('input[name="delayNode"]:checked');
+      if (checkedNodes.length === 0) {
+        document.getElementById('nodeError').style.display = 'block';
+        showToast('请至少选择一个节点');
+        return;
+      }
+      document.getElementById('nodeError').style.display = 'none';
+
+      let errorMsg = '';
+      checkedNodes.forEach(cb => {
+        const nodeId = cb.value;
+        const node = project.nodes.find(n => n.id === nodeId);
+        if (!node) return;
+
+        const dateInput = form.querySelector(`.detail-delay-date[data-node="${nodeId}"]`);
+        const reasonInput = form.querySelector(`.detail-delay-reason[data-node="${nodeId}"]`);
+
+        const newDate = dateInput ? dateInput.value : '';
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+
+        if (!newDate) { errorMsg = '请为每个选中的节点选择延期后时间'; return; }
+        if (!reason) { errorMsg = '请为每个选中的节点填写申请原因'; return; }
+        if (newDate <= node.planDate) { errorMsg = '延期后时间必须晚于原计划时间'; return; }
+
+        const nodeIdx = (project.nodes || []).indexOf(node) + 1;
+        MOCK.delayApprovals.push({
+          id: 'D' + String(MOCK.delayApprovals.length + 1).padStart(3, '0'),
+          projectId: project.id, nodeId: node.id,
+          projectName: project.projectName,
+          nodeInfo: `第${nodeIdx}期（¥${formatMoney(node.amount)}）`,
+          applicant: user.id, applicantName: user.name,
+          originalDate: node.planDate, newDate: newDate,
+          reason: reason, status: '待审批', opinion: '',
+          approver: '', approverName: '', approvalTime: ''
+        });
+      });
+
+      if (errorMsg) {
+        showToast(errorMsg);
+        return;
+      }
+
+      closeModal('statusModal');
+      showToast(`延期申请已提交（${checkedNodes.length}个节点）`);
+      renderDetail();
+    }
+
+    // ==================== 状态更新弹窗 ====================
+    function openStatusModal(nodeId, type) {
+      const node = project.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      const modal = document.getElementById('statusModalContent');
+      if (type === 'paid') {
+        modal.innerHTML = `
+          <div class="modal-title">登记回款</div>
+          <form onsubmit="submitStatus(event, '${nodeId}', 'paid')">
+            <div class="form-group">
+              <label class="form-label">应收金额：¥${formatMoney(node.amount)}</label>
+            </div>
+            <div class="form-group">
+              <label class="form-label required">到账金额（元）</label>
+              <input class="form-input" type="number" placeholder="0.00" data-required>
+              <div class="form-error">请输入到账金额</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label required">到账时间</label>
+              <input class="form-input" type="date" data-required>
+              <div class="form-error">请选择到账时间</div>
+            </div>
+            <button type="submit" class="btn btn-success btn-block">确认回款</button>
+          </form>
+          <div style="text-align:center;margin-top:10px">
+            <span style="color:#999;font-size:13px;cursor:pointer" onclick="closeModal('statusModal')">取消</span>
+          </div>`;
+      } else if (type === 'bad') {
+        modal.innerHTML = `
+          <div class="modal-title">坏账关闭确认</div>
+          <p style="text-align:center;color:#666;font-size:14px;margin-bottom:12px">确定将此收款节点标记为坏账关闭？</p>
+          <p style="text-align:center;color:#ff4d4f;font-size:13px">应收金额：¥${formatMoney(node.amount)}</p>
+          <div class="confirm-buttons">
+            <button class="btn btn-outline" onclick="closeModal('statusModal')">取消</button>
+            <button class="btn btn-danger" onclick="submitStatusDirect('${nodeId}', 'bad')">确认坏账</button>
+          </div>`;
+      } else if (type === 'reopen') {
+        modal.innerHTML = `
+          <div class="modal-title">重新打开节点</div>
+          <p style="text-align:center;color:#666;font-size:14px;margin-bottom:12px">确定将此收款节点重新打开为"待回款"状态？</p>
+          <div class="confirm-buttons">
+            <button class="btn btn-outline" onclick="closeModal('statusModal')">取消</button>
+            <button class="btn btn-primary" onclick="submitStatusDirect('${nodeId}', 'reopen')">确认重开</button>
+          </div>`;
+      }
+      openModal('statusModal');
+    }
+
+    function submitStatus(e, nodeId, type) {
+      e.preventDefault();
+      const form = e.target;
+      if (!validateForm(form)) return;
+
+      const node = project.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      if (type === 'paid') {
+        const inputs = form.querySelectorAll('.form-input');
+        node.collectStatus = '已回款';
+        node.receivedAmount = parseFloat(inputs[0].value);
+        node.receivedDate = inputs[1].value;
+        MOCK.collectRecords.push({
+          id: 'R' + Date.now(), projectId: project.id, nodeId: node.id, type: '到账',
+          content: `到账 ¥${formatMoney(node.receivedAmount)}`,
+          operator: user.id, time: new Date().toLocaleString('zh-CN')
+        });
+        showToast('回款已登记');
+      }
+      closeModal('statusModal');
+      renderDetail();
+    }
+
+    function submitStatusDirect(nodeId, type) {
+      const node = project.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      if (type === 'bad') {
+        node.collectStatus = '坏账关闭';
+        MOCK.collectRecords.push({
+          id: 'R' + Date.now(), projectId: project.id, nodeId: node.id, type: '状态变更',
+          content: '收款状态由"待回款"变更为"坏账关闭"',
+          operator: user.id, time: new Date().toLocaleString('zh-CN')
+        });
+        showToast('已标记为坏账关闭');
+      } else if (type === 'reopen') {
+        node.collectStatus = '待回款';
+        node.receivedAmount = 0;
+        node.receivedDate = '';
+        MOCK.collectRecords.push({
+          id: 'R' + Date.now(), projectId: project.id, nodeId: node.id, type: '状态变更',
+          content: '坏账关闭已重新打开，恢复为"待回款"',
+          operator: user.id, time: new Date().toLocaleString('zh-CN')
+        });
+        showToast('节点已重新打开');
+      }
+      closeModal('statusModal');
+      renderDetail();
+    }
+  </script>
+</body>
+</html>

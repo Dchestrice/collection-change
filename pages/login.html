@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>催收台账 - 登录</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body class="bg-white min-h-screen flex flex-col">
+  <div class="flex-1 flex flex-col justify-center px-8">
+    <!-- Logo 区 -->
+    <div class="text-center mb-10">
+      <div class="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
+        <span class="text-white text-2xl font-bold">收</span>
+      </div>
+      <h1 class="text-xl font-bold text-gray-800">催收台账</h1>
+      <p class="text-sm text-gray-400 mt-1">企业应收账款催收管理平台</p>
+    </div>
+
+    <!-- 登录表单 -->
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="mb-4">
+        <label class="block text-sm text-gray-500 mb-2">手机号</label>
+        <input id="phone" type="tel" class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-500 transition" placeholder="请输入手机号" maxlength="11" data-required value="13800138000">
+      </div>
+      <div class="mb-2">
+        <label class="block text-sm text-gray-500 mb-2">验证码</label>
+        <div class="flex gap-3">
+          <input id="code" type="text" class="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-500 transition" placeholder="请输入验证码" maxlength="6" data-required value="123456">
+          <button id="sendCodeBtn" type="button" onclick="sendCode()" class="px-4 py-3 bg-blue-50 text-blue-500 rounded-xl text-sm font-medium whitespace-nowrap hover:bg-blue-100 transition">获取验证码</button>
+        </div>
+      </div>
+
+      <!-- 角色选择 -->
+      <div class="mt-6 mb-4">
+        <label class="block text-sm text-gray-500 mb-2">登录角色</label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex items-center justify-center px-3 py-3 border-2 border-gray-200 rounded-xl cursor-pointer transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+            <input type="radio" name="role" value="admin" checked class="hidden">
+            <span class="text-sm font-medium">管理员</span>
+          </label>
+          <label class="flex items-center justify-center px-3 py-3 border-2 border-gray-200 rounded-xl cursor-pointer transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+            <input type="radio" name="role" value="salesman" class="hidden">
+            <span class="text-sm font-medium">业务员</span>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium text-sm mt-4 hover:bg-blue-600 transition active:scale-[0.98]">
+        登录
+      </button>
+    </form>
+
+    <p class="text-center text-xs text-gray-400 mt-6">演示环境，输入任意验证码即可登录</p>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    let countdown = 0;
+    let timer = null;
+
+    function sendCode() {
+      if (countdown > 0) return;
+      const phone = document.getElementById('phone').value;
+      if (!/^1\d{10}$/.test(phone)) {
+        showToast('请输入正确的手机号');
+        return;
+      }
+      countdown = 60;
+      const btn = document.getElementById('sendCodeBtn');
+      btn.disabled = true;
+      timer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.textContent = '获取验证码';
+        } else {
+          btn.textContent = countdown + 's';
+        }
+      }, 1000);
+      showToast('验证码已发送');
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const phone = document.getElementById('phone').value;
+      const code = document.getElementById('code').value;
+      if (!/^1\d{10}$/.test(phone)) {
+        showToast('请输入正确的手机号');
+        return;
+      }
+      if (!code) {
+        showToast('请输入验证码');
+        return;
+      }
+      const role = document.querySelector('input[name="role"]:checked').value;
+
+      // 设置用户信息
+      const roleMap = { admin: 'u1', salesman: 'u2' };
+      const user = MOCK.users.find(u => u.id === roleMap[role]);
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      localStorage.setItem('userRole', role);
+
+      showToast('登录成功');
+      setTimeout(() => {
+        window.location.href = 'dashboard.html';
+      }, 500);
+    }
+
+    // 检查已登录
+    (function() {
+      const saved = localStorage.getItem('currentUser');
+      if (saved) {
+        document.getElementById('phone').value = JSON.parse(saved).phone || '';
+      }
+    })();
+  </script>
+</body>
+</html>

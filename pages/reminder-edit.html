@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>编辑提醒规则</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="reminder-list.html" class="navbar-back">←</a>
+      <div class="navbar-title" id="pageTitle">新建提醒规则</div>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <form id="ruleForm" onsubmit="saveRule(event)">
+      <div class="form-group">
+        <label class="form-label required">规则名称</label>
+        <input class="form-input" id="ruleName" placeholder="如：即将到期提醒-3天" data-required>
+        <div class="form-error">请输入规则名称</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">是否启用</label>
+        <div style="padding-top:6px">
+          <label class="toggle-switch">
+            <input type="checkbox" id="ruleEnabled" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">触发条件</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select class="form-select" id="triggerType" style="flex:1" onchange="updatePreview()">
+            <option value="before">距离计划收款日期</option>
+            <option value="after">逾期</option>
+          </select>
+          <input class="form-input" id="triggerDays" type="number" placeholder="天数" style="width:80px" value="3" min="1" oninput="updatePreview()">
+          <span style="font-size:13px;color:#999">天</span>
+        </div>
+        <div style="font-size:12px;color:#999;margin-top:4px" id="conditionPreview"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">通知频率</label>
+        <select class="form-select" id="ruleFrequency" data-required>
+          <option value="每日" selected>每日</option>
+          <option value="每周">每周</option>
+          <option value="每半月">每半月</option>
+          <option value="每月">每月</option>
+          <option value="仅一次">仅一次</option>
+        </select>
+        <div class="form-error">请选择通知频率</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">关联项目</label>
+        <div style="font-size:11px;color:#999;margin-bottom:4px">催收通知将自动发送给关联项目的催收负责人</div>
+        <div class="multi-select-wrap" id="projectMultiSelect">
+          <div class="multi-select-trigger" onclick="toggleProjectDropdown()">
+            <span id="selectedProjectsText" style="font-size:13px;color:#999">全部项目</span>
+            <span style="font-size:12px;color:#999">▼</span>
+          </div>
+          <div class="multi-select-dropdown" id="projectDropdown">
+            <div class="multi-select-option" style="color:#999">
+              <input type="checkbox" id="selectAllProjects" checked onchange="toggleAllProjects(this.checked)">
+              <label for="selectAllProjects" style="cursor:pointer">全部项目</label>
+            </div>
+            <div id="projectOptions"></div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:3px">可多选关联项目，不选则默认适用全部项目</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">通知内容</label>
+        <textarea class="form-textarea" id="ruleContent" placeholder="可使用模板变量：{项目名称}、{应收金额}、{差额}、{天数}" data-required oninput="updatePreview()"></textarea>
+        <div class="form-error">请输入通知内容</div>
+      </div>
+
+      <!-- 模板快捷插入 -->
+      <div style="margin-bottom:14px">
+        <label class="form-label">快捷模板</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <span class="filter-tag" style="cursor:pointer" onclick="insertTemplate('before')">到期提醒</span>
+          <span class="filter-tag" style="cursor:pointer" onclick="insertTemplate('overdue')">逾期提醒</span>
+          <span class="filter-tag" style="cursor:pointer" onclick="insertTemplate('urgent')">紧急催收</span>
+        </div>
+      </div>
+
+      <!-- 预览 -->
+      <div class="card" style="background:#f7f8fa;margin-bottom:16px">
+        <div style="font-size:13px;color:#999;margin-bottom:6px">📩 消息预览</div>
+        <div id="previewContent" style="font-size:13px;color:#333;line-height:1.6"></div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block">保存规则</button>
+    </form>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    const params = new URLSearchParams(window.location.search);
+    const ruleId = params.get('id');
+    let isEdit = !!ruleId;
+    let selectedProjectIds = [];
+
+    // 初始化项目多选
+    (function() {
+      const container = document.getElementById('projectOptions');
+      MOCK.projects.forEach(p => {
+        container.innerHTML += `
+          <div class="multi-select-option">
+            <input type="checkbox" class="project-check" value="${p.id}" onchange="onProjectCheckChange()">
+            <span style="font-size:13px">${p.projectName}</span>
+          </div>`;
+      });
+    })();
+
+    function toggleProjectDropdown() {
+      document.getElementById('projectDropdown').classList.toggle('show');
+    }
+
+    // 点击外部关闭下拉
+    document.addEventListener('click', function(e) {
+      const wrap = document.getElementById('projectMultiSelect');
+      if (wrap && !wrap.contains(e.target)) {
+        document.getElementById('projectDropdown').classList.remove('show');
+      }
+    });
+
+    function toggleAllProjects(checked) {
+      document.querySelectorAll('.project-check').forEach(cb => { cb.checked = checked; });
+      document.getElementById('selectAllProjects').checked = checked;
+      updateSelectedProjectsText();
+    }
+
+    function onProjectCheckChange() {
+      const allChecked = document.querySelectorAll('.project-check:checked').length === MOCK.projects.length;
+      document.getElementById('selectAllProjects').checked = allChecked;
+      updateSelectedProjectsText();
+    }
+
+    function updateSelectedProjectsText() {
+      const checked = document.querySelectorAll('.project-check:checked');
+      if (checked.length === 0 || checked.length === MOCK.projects.length) {
+        document.getElementById('selectedProjectsText').textContent = '全部项目';
+        document.getElementById('selectedProjectsText').style.color = '#999';
+      } else {
+        document.getElementById('selectedProjectsText').textContent = `已选 ${checked.length} 个项目`;
+        document.getElementById('selectedProjectsText').style.color = '#1677ff';
+      }
+      // 更新隐藏的选中列表
+      selectedProjectIds = Array.from(checked).map(cb => cb.value);
+    }
+
+    if (isEdit) {
+      document.getElementById('pageTitle').textContent = '编辑提醒规则';
+      const rule = MOCK.reminderRules.find(r => r.id === ruleId);
+      if (rule) {
+        document.getElementById('ruleName').value = rule.name;
+        document.getElementById('ruleEnabled').checked = rule.enabled;
+        document.getElementById('ruleFrequency').value = rule.frequency;
+        document.getElementById('ruleContent').value = rule.content;
+        // 解析触发条件
+        if (rule.conditions.indexOf('距离') >= 0) {
+          document.getElementById('triggerType').value = 'before';
+          document.getElementById('triggerDays').value = (rule.conditions.match(/\d+/) || ['3'])[0];
+        } else if (rule.conditions.indexOf('逾期') >= 0) {
+          document.getElementById('triggerType').value = 'after';
+          document.getElementById('triggerDays').value = (rule.conditions.match(/\d+/) || ['1'])[0];
+        }
+        // 设置关联项目
+        if (rule.projectIds && rule.projectIds.length > 0) {
+          document.getElementById('selectAllProjects').checked = false;
+          document.querySelectorAll('.project-check').forEach(cb => {
+            cb.checked = rule.projectIds.includes(cb.value);
+          });
+          updateSelectedProjectsText();
+        }
+      }
+    }
+
+    function insertTemplate(type) {
+      const templates = {
+        'before': '项目【{项目名称}】的应收款将于{天数}天后到期，应收金额【{应收金额}】元，请及时跟进催收。',
+        'overdue': '项目【{项目名称}】已逾期{天数}天，逾期金额【{差额}】元，请尽快催收处理。',
+        'urgent': '🚨 紧急提醒：项目【{项目名称}】已逾期{天数}天，逾期金额【{差额}】元，请立即升级处理，防范坏账风险！'
+      };
+      document.getElementById('ruleContent').value = templates[type] || '';
+      updatePreview();
+    }
+
+    // 实时预览
+    function updatePreview() {
+      const content = document.getElementById('ruleContent').value;
+      const days = document.getElementById('triggerDays').value || '?';
+      const triggerType = document.getElementById('triggerType').value;
+      const conditionText = triggerType === 'before'
+        ? `距离计划收款日期 ${days} 天`
+        : `逾期 ${days} 天`;
+      document.getElementById('conditionPreview').textContent = '条件：' + conditionText;
+
+      const preview = content
+        .replace(/\{项目名称\}/g, '上海浦东新区智慧园区项目')
+        .replace(/\{应收金额\}/g, '¥2,500,000.00')
+        .replace(/\{差额\}/g, '¥1,000,000.00')
+        .replace(/\{天数\}/g, days);
+      document.getElementById('previewContent').textContent = preview || '（请输入通知内容）';
+    }
+    updatePreview();
+
+    function saveRule(e) {
+      e.preventDefault();
+      if (!validateForm(document.getElementById('ruleForm'))) return;
+
+      const name = document.getElementById('ruleName').value;
+      const enabled = document.getElementById('ruleEnabled').checked;
+      const triggerType = document.getElementById('triggerType').value;
+      const days = document.getElementById('triggerDays').value;
+      const conditions = triggerType === 'before' ? `距离计划收款日期 ${days} 天` : `逾期 ${days} 天`;
+      const frequency = document.getElementById('ruleFrequency').value;
+      const content = document.getElementById('ruleContent').value;
+
+      // 获取选中的项目（如果不全选）
+      const allChecked = document.getElementById('selectAllProjects').checked;
+      const projectIds = allChecked ? [] : selectedProjectIds;
+
+      if (isEdit) {
+        const rule = MOCK.reminderRules.find(r => r.id === ruleId);
+        if (rule) {
+          rule.name = name; rule.enabled = enabled; rule.conditions = conditions;
+          rule.frequency = frequency; rule.content = content; rule.projectIds = projectIds;
+        }
+      } else {
+        MOCK.reminderRules.push({
+          id: 'RM' + String(MOCK.reminderRules.length + 1).padStart(3, '0'),
+          name, enabled, conditions, frequency, projectIds, content
+        });
+      }
+
+      showToast(isEdit ? '规则已更新' : '规则已创建');
+      setTimeout(() => {
+        window.location.href = 'reminder-list.html';
+      }, 500);
+    }
+  </script>
+</body>
+</html>

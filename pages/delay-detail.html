@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>审批详情</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="delay-list.html" class="navbar-back">←</a>
+      <div class="navbar-title">审批详情</div>
+    </div>
+  </nav>
+
+  <div class="main-content" id="detailContent">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <div class="bottom-bar" id="bottomActions"></div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    const params = new URLSearchParams(window.location.search);
+    const approvalId = params.get('id');
+    const currentApproval = MOCK.delayApprovals.find(a => a.id === approvalId);
+
+    if (!currentApproval) {
+      document.getElementById('detailContent').innerHTML = renderEmpty('审批记录不存在');
+    } else {
+      renderDetail();
+    }
+
+    function renderDetail() {
+      const container = document.getElementById('detailContent');
+      const bar = document.getElementById('bottomActions');
+
+      // 管理员查看时，展示同一项目下所有待审批节点
+      let allPendingNodes = [];
+      if (user.role === 'admin') {
+        allPendingNodes = MOCK.delayApprovals.filter(a =>
+          a.projectId === currentApproval.projectId && a.status === '待审批'
+        );
+      } else {
+        // 业务员只看当前这一条
+        allPendingNodes = [currentApproval];
+      }
+
+      // 已审批的节点
+      const resolvedNodes = MOCK.delayApprovals.filter(a =>
+        a.projectId === currentApproval.projectId && a.status !== '待审批'
+      );
+
+      let html = '';
+
+      // 项目信息
+      html += `
+        <div class="detail-section">
+          <div class="detail-section-title">项目信息</div>
+          <div class="detail-row"><span class="detail-label">项目名称</span><span class="detail-value" style="color:#1677ff;cursor:pointer" onclick="window.location.href='project-detail.html?id=${currentApproval.projectId}'">${currentApproval.projectName} →</span></div>
+          <div class="detail-row"><span class="detail-label">申请人</span><span class="detail-value">${currentApproval.applicantName}</span></div>
+        </div>`;
+
+      // 待审批节点 — 每个节点独立审批
+      if (allPendingNodes.length > 0) {
+        const isAdmin = user.role === 'admin';
+        html += `
+          <div class="detail-section">
+            <div class="detail-section-title">待审批节点（${allPendingNodes.length}个）${isAdmin ? ' — 每个节点独立审批' : ''}</div>
+            ${allPendingNodes.map(a => `
+              <div class="node-card overdue" style="margin-bottom:10px" id="approval_${a.id}">
+                <div class="node-header">
+                  <span class="node-title">${a.nodeInfo}</span>
+                  ${getApprovalStatusTag(a.status)}
+                </div>
+                <div class="node-row"><span style="color:#999">原计划时间</span><span>${formatDate(a.originalDate)}</span></div>
+                <div class="node-row"><span style="color:#999">延期后时间</span><span style="color:#fa8c16;font-weight:600">${formatDate(a.newDate)}</span></div>
+                <div class="node-row"><span style="color:#999">申请原因</span><span style="font-size:12px">${a.reason}</span></div>
+                ${isAdmin ? `
+                  <div style="margin-top:8px;display:flex;gap:8px" class="approval-actions" data-aid="${a.id}">
+                    <button class="btn btn-danger btn-sm" onclick="approveNode('${a.id}','rejected')">拒绝</button>
+                    <button class="btn btn-success btn-sm" onclick="approveNode('${a.id}','approved')">同意延期</button>
+                  </div>` : `
+                  <div style="margin-top:8px;font-size:12px;color:#999">等待管理员审批</div>
+                `}
+              </div>
+            `).join('')}
+          </div>`;
+      }
+
+      // 已审批节点
+      if (resolvedNodes.length > 0) {
+        html += `
+          <div class="detail-section">
+            <div class="detail-section-title">已审批节点（${resolvedNodes.length}个）</div>
+            ${resolvedNodes.map(a => `
+              <div class="node-card" style="margin-bottom:8px;${a.status === '已拒绝' ? 'border-left:3px solid #ff4d4f' : 'border-left:3px solid #52c41a'}">
+                <div class="node-header">
+                  <span class="node-title">${a.nodeInfo}</span>
+                  ${getApprovalStatusTag(a.status)}
+                </div>
+                <div class="node-row"><span style="color:#999">原计划</span><span>${formatDate(a.originalDate)} → <span style="color:#fa8c16">${formatDate(a.newDate)}</span></span></div>
+                <div class="node-row"><span style="color:#999">申请原因</span><span style="font-size:12px">${a.reason}</span></div>
+                <div class="node-row"><span style="color:#999">审批意见</span><span style="font-size:12px">${a.opinion || '-'}</span></div>
+                ${a.approverName ? `<div class="node-row"><span style="color:#999">审批人</span><span>${a.approverName} · ${a.approvalTime || ''}</span></div>` : ''}
+              </div>
+            `).join('')}
+          </div>`;
+      }
+
+      container.innerHTML = html;
+
+      // 底部：管理员快速批量操作提示
+      if (user.role === 'admin' && allPendingNodes.length > 0) {
+        bar.innerHTML = `
+          <span style="width:100%;text-align:center;color:#999;font-size:12px">请在待审批节点区域逐个完成审批</span>
+        `;
+      } else if (user.role === 'salesman' && allPendingNodes.length > 0 && allPendingNodes[0].status === '待审批') {
+        bar.innerHTML = '<span style="width:100%;text-align:center;color:#999;font-size:13px">等待管理员审批</span>';
+      } else {
+        bar.innerHTML = '<span style="width:100%;text-align:center;color:#999;font-size:13px">— 所有节点已审批完成 —</span>';
+      }
+    }
+
+    // 单个节点审批
+    function approveNode(approvalId, result) {
+      const approval = MOCK.delayApprovals.find(a => a.id === approvalId);
+      if (!approval || approval.status !== '待审批') return;
+      if (user.role !== 'admin') {
+        showToast('仅管理员可执行审批操作');
+        return;
+      }
+
+      const resultLabel = result === 'approved' ? '同意延期' : '拒绝延期';
+      const btnClass = result === 'approved' ? 'btn-success' : 'btn-danger';
+
+      // 创建审批弹窗
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay show';
+      overlay.style.cssText = 'align-items:flex-end';
+      overlay.onclick = function(e) {
+        if (e.target === overlay) { document.body.removeChild(overlay); document.body.style.overflow = ''; }
+      };
+
+      overlay.innerHTML = `
+        <div class="modal-content">
+          <div class="modal-title">${resultLabel}</div>
+          <div style="background:#f7f8fa;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px">
+            <div>项目：${approval.projectName}</div>
+            <div>节点：${approval.nodeInfo}</div>
+            <div>原计划：${approval.originalDate} → 延期至：${approval.newDate}</div>
+            <div style="margin-top:4px;font-size:12px;color:#999">申请原因：${approval.reason}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label required">审批意见</label>
+            <textarea class="form-textarea" id="opinionInput" placeholder="请填写审批意见" data-required></textarea>
+            <div class="form-error">请填写审批意见</div>
+          </div>
+          <button class="btn ${btnClass} btn-block" id="submitBtn">确认${resultLabel}</button>
+          <div style="text-align:center;margin-top:10px">
+            <span style="color:#999;font-size:13px;cursor:pointer" onclick="this.closest('.modal-overlay').remove();document.body.style.overflow=''">取消</span>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+      document.body.style.overflow = 'hidden';
+
+      overlay.querySelector('#submitBtn').onclick = function() {
+        const opinion = overlay.querySelector('#opinionInput').value.trim();
+        if (!opinion) {
+          overlay.querySelector('.form-group').classList.add('error');
+          showToast('请填写审批意见');
+          return;
+        }
+
+        approval.status = result === 'approved' ? '已通过' : '已拒绝';
+        approval.opinion = opinion;
+        approval.approver = user.id;
+        approval.approverName = user.name;
+        approval.approvalTime = new Date().toLocaleString('zh-CN');
+
+        // 如果通过，更新节点计划时间
+        if (result === 'approved') {
+          const project = MOCK.projects.find(p => p.id === approval.projectId);
+          if (project) {
+            const node = (project.nodes || []).find(n => n.id === approval.nodeId);
+            if (node) {
+              node.planDate = approval.newDate;
+            }
+          }
+          MOCK.collectRecords.push({
+            id: 'R' + Date.now(), projectId: approval.projectId, nodeId: approval.nodeId,
+            type: '延期',
+            content: `延期审批通过：原计划${approval.originalDate}，延期至${approval.newDate}，审批意见：${opinion}`,
+            operator: user.id, time: new Date().toLocaleString('zh-CN')
+          });
+        }
+
+        document.body.removeChild(overlay);
+        document.body.style.overflow = '';
+        showToast(result === 'approved' ? '已同意延期申请' : '已拒绝延期申请');
+        renderDetail();
+      };
+    }
+  </script>
+</body>
+</html>

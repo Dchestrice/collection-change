@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>提醒规则</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="dashboard.html" class="navbar-back">←</a>
+      <div class="navbar-title">提醒规则</div>
+    </div>
+    <a href="reminder-edit.html" class="navbar-action">+ 新建</a>
+  </nav>
+
+  <div class="main-content" id="rulesList" style="min-height:300px">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- 删除确认弹窗 -->
+  <div class="modal-overlay center" id="deleteModal">
+    <div class="modal-content">
+      <div class="modal-title">确认删除</div>
+      <p style="text-align:center;color:#666;font-size:14px;margin-bottom:8px">确定要删除该提醒规则吗？</p>
+      <p style="text-align:center;color:#999;font-size:12px" id="deleteRuleName"></p>
+      <div class="confirm-buttons">
+        <button class="btn btn-outline" onclick="closeModal('deleteModal')">取消</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    const freqColors = { '每日': 'normal', '每周': 'normal', '每半月': 'normal', '每月': 'normal', '仅一次': 'normal' };
+
+    function renderList() {
+      const container = document.getElementById('rulesList');
+      const rules = MOCK.reminderRules;
+
+      if (rules.length === 0) {
+        container.innerHTML = renderEmpty('暂无提醒规则');
+        return;
+      }
+
+      container.innerHTML = rules.map(r => `
+        <div class="card" style="cursor:default">
+          <div class="card-header">
+            <div class="card-title" style="font-size:15px">${r.name}</div>
+            <label class="toggle-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRule('${r.id}', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="card-row"><span class="label">触发条件</span><span class="value">${r.conditions}</span></div>
+          <div class="card-row"><span class="label">通知频率</span><span class="value"><span class="status-tag normal">${r.frequency}</span></span></div>
+          <div class="card-row"><span class="label">关联项目</span><span class="value" style="font-size:12px">${r.projectIds && r.projectIds.length > 0 ? r.projectIds.length + '个项目' : '全部项目'}</span></div>
+          <div class="card-row"><span class="label">通知内容</span><span class="value" style="font-size:12px;color:#666">${r.content}</span></div>
+          <div class="card-footer">
+            <button class="btn btn-outline btn-sm" onclick="editRule('${r.id}')">编辑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteRule('${r.id}')">删除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function toggleRule(id, enabled) {
+      const rule = MOCK.reminderRules.find(r => r.id === id);
+      if (rule) {
+        rule.enabled = enabled;
+        showToast(enabled ? '规则已启用' : '规则已禁用');
+      }
+    }
+
+    function editRule(id) {
+      window.location.href = 'reminder-edit.html?id=' + id;
+    }
+
+    function deleteRule(id) {
+      const rule = MOCK.reminderRules.find(r => r.id === id);
+      if (!rule) return;
+      document.getElementById('deleteRuleName').textContent = '规则：' + rule.name;
+      document.getElementById('confirmDeleteBtn').onclick = function() {
+        MOCK.reminderRules = MOCK.reminderRules.filter(r => r.id !== id);
+        closeModal('deleteModal');
+        showToast('规则已删除');
+        renderList();
+      };
+      openModal('deleteModal');
+    }
+
+    renderList();
+  </script>
+</body>
+</html>

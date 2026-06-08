@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>项目列表</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="dashboard.html" class="navbar-back">←</a>
+      <div class="navbar-title">项目列表</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="navbar-action" onclick="openModal('importModal')" style="font-size:13px;color:#52c41a">📥 导入</span>
+      <a href="project-edit.html" class="navbar-action">+ 新建</a>
+    </div>
+  </nav>
+
+  <!-- 搜索区 -->
+  <div class="search-bar">
+    <input class="search-input" id="searchInput" type="text" placeholder="搜索项目名称 / 项目编号" oninput="filterProjects()">
+  </div>
+
+  <!-- 状态Tab -->
+  <div class="tabs" id="statusTabs">
+    <div class="tab-item active" data-status="all" onclick="switchTab('all', this)">全部</div>
+    <div class="tab-item" data-status="pending" onclick="switchTab('pending', this)">待回款<span class="tab-badge" id="pendingBadge">0</span></div>
+    <div class="tab-item" data-status="paid" onclick="switchTab('paid', this)">已回款</div>
+    <div class="tab-item" data-status="bad" onclick="switchTab('bad', this)">坏账关闭</div>
+  </div>
+
+  <!-- 筛选区 -->
+  <div class="filter-bar" id="filterBar">
+    <select class="filter-tag" id="filterRegion" onchange="filterProjects()" style="font-size:12px;padding:4px 8px;border-radius:16px;border:1px solid #e5e5e5;outline:none">
+      <option value="">全部区域</option>
+      <option value="华东">华东</option>
+      <option value="华南">华南</option>
+      <option value="华北">华北</option>
+      <option value="西南">西南</option>
+      <option value="华中">华中</option>
+      <option value="山东">山东</option>
+      <option value="行拓1组">行拓1组</option>
+      <option value="行拓2组">行拓2组</option>
+      <option value="智能化">智能化</option>
+    </select>
+    <select class="filter-tag" id="filterOverdue" onchange="filterProjects()" style="font-size:12px;padding:4px 8px;border-radius:16px;border:1px solid #e5e5e5;outline:none">
+      <option value="">全部逾期</option>
+      <option value="未逾期">未逾期</option>
+      <option value="已逾期">已逾期</option>
+    </select>
+    <select class="filter-tag" id="filterType" onchange="filterProjects()" style="font-size:12px;padding:4px 8px;border-radius:16px;border:1px solid #e5e5e5;outline:none">
+      <option value="">全部类型</option>
+      <option value="工程">工程</option>
+      <option value="集采">集采</option>
+    </select>
+  </div>
+
+  <!-- 列表区 -->
+  <div class="main-content" id="projectList" style="min-height:300px">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Excel导入弹窗 -->
+  <div class="modal-overlay center" id="importModal">
+    <div class="modal-content">
+      <div class="modal-title">Excel导入项目</div>
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;margin-bottom:12px">📁</div>
+        <div style="font-size:13px;color:#666;margin-bottom:16px">支持 .xlsx / .xls 格式文件</div>
+        <div class="upload-area" id="uploadArea" onclick="mockImport()">
+          <div style="font-size:14px;color:#1677ff;margin-bottom:4px">点击选择文件或拖拽到此处</div>
+          <div style="font-size:11px;color:#999">单次最多导入 500 条记录</div>
+        </div>
+        <div style="font-size:12px;color:#999;margin-bottom:16px;text-align:left;background:#f7f8fa;border-radius:8px;padding:12px;margin-top:12px">
+          <div style="font-weight:500;margin-bottom:6px;color:#666">导入说明：</div>
+          <div>1. 请先下载模板，按模板格式填写数据</div>
+          <div>2. 区域、项目类型必须使用枚举值</div>
+          <div>3. 日期格式：YYYY-MM-DD</div>
+          <div>4. 金额单位为元</div>
+        </div>
+        <div id="importResult" style="display:none"></div>
+        <button class="btn btn-outline btn-block" onclick="downloadTemplate()" style="margin-bottom:8px">📥 下载导入模板</button>
+      </div>
+      <div style="text-align:center">
+        <span style="color:#999;font-size:13px;cursor:pointer" onclick="closeModal('importModal')">关闭</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 延期申请弹窗 -->
+  <div class="modal-overlay" id="delayApplyModal">
+    <div class="modal-content" id="delayApplyContent"></div>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    let currentTab = 'all';
+    let projects = getFilteredProjects();
+
+    function updateBadge() {
+      const allNodes = [];
+      projects.forEach(p => {
+        (p.nodes || []).forEach(n => {
+          allNodes.push(n);
+        });
+      });
+      const pendingCount = allNodes.filter(n => n.collectStatus === '待回款').length;
+      document.getElementById('pendingBadge').textContent = pendingCount;
+    }
+    updateBadge();
+
+    function switchTab(status, el) {
+      currentTab = status;
+      document.querySelectorAll('#statusTabs .tab-item').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      filterProjects();
+    }
+
+    function filterProjects() {
+      const keyword = (document.getElementById('searchInput').value || '').toLowerCase();
+      const region = document.getElementById('filterRegion').value;
+      const overdue = document.getElementById('filterOverdue').value;
+      const type = document.getElementById('filterType').value;
+
+      let filtered = getFilteredProjects();
+
+      // Tab filters: show projects that have at least one node matching the status
+      if (currentTab !== 'all') {
+        const statusMap = { 'pending': '待回款', 'paid': '已回款', 'bad': '坏账关闭' };
+        const targetStatus = statusMap[currentTab];
+        filtered = filtered.filter(p => (p.nodes || []).some(n => n.collectStatus === targetStatus));
+      }
+      if (keyword) {
+        filtered = filtered.filter(p =>
+          p.projectName.toLowerCase().includes(keyword) ||
+          p.projectNo.toLowerCase().includes(keyword)
+        );
+      }
+      if (region) filtered = filtered.filter(p => p.region === region);
+      if (type) filtered = filtered.filter(p => p.projectType === type);
+      if (overdue) {
+        filtered = filtered.filter(p =>
+          (p.nodes || []).some(n => calcOverdueStatus(n) === overdue)
+        );
+      }
+
+      // 有逾期节点的项目置顶
+      filtered.sort((a, b) => {
+        const aOverdue = (a.nodes || []).some(n => calcOverdueStatus(n) === '已逾期');
+        const bOverdue = (b.nodes || []).some(n => calcOverdueStatus(n) === '已逾期');
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+        return 0;
+      });
+
+      renderList(filtered);
+    }
+
+    function renderList(data) {
+      const container = document.getElementById('projectList');
+      if (data.length === 0) {
+        container.innerHTML = renderEmpty('没有匹配的项目记录');
+        return;
+      }
+      container.innerHTML = data.map(p => {
+        const nodes = getNodesWithOverdue(p);
+        const hasOverdue = nodes.some(n => n.overdueStatus === '已逾期');
+        const totalAmount = getProjectTotalAmount(p);
+        const receivedAmount = getProjectReceivedAmount(p);
+        const pendingNodes = nodes.filter(n => n.collectStatus === '待回款');
+        const paidNodes = nodes.filter(n => n.collectStatus === '已回款');
+        const badNodes = nodes.filter(n => n.collectStatus === '坏账关闭');
+
+        return `
+        <div class="card ${hasOverdue ? 'risk-highlight' : ''}" onclick="viewDetail('${p.id}')">
+          <div class="card-header">
+            <div class="card-title">${p.projectName}</div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              ${getProjectTypeTag(p.projectType)}
+            </div>
+          </div>
+          <div class="card-row">
+            <span class="label">项目编号</span>
+            <span class="value">${p.projectNo}</span>
+          </div>
+          <div class="card-row">
+            <span class="label">应收总额</span>
+            <span class="amount">¥${formatMoney(totalAmount)}</span>
+          </div>
+          <div class="card-row">
+            <span class="label">已到账 / 待回款</span>
+            <span class="value">¥${formatMoney(receivedAmount)} / <span style="color:#ff4d4f">¥${formatMoney(totalAmount - receivedAmount)}</span></span>
+          </div>
+          <div class="card-row">
+            <span class="label">收款节点</span>
+            <span class="value" style="font-size:12px">
+              ${pendingNodes.length > 0 ? `<span class="status-tag pending">待回款×${pendingNodes.length}</span> ` : ''}
+              ${paidNodes.length > 0 ? `<span class="status-tag paid">已回款×${paidNodes.length}</span> ` : ''}
+              ${badNodes.length > 0 ? `<span class="status-tag bad">坏账×${badNodes.length}</span>` : ''}
+            </span>
+          </div>
+          <div class="card-row">
+            <span class="label">催收负责人</span>
+            <span class="value">${getUserName(p.collector)}</span>
+          </div>
+          ${hasOverdue ? `<div class="card-row"><span class="label" style="color:#ff4d4f">逾期状态</span><span class="value">${getOverdueStatusTag('已逾期')}</span></div>` : ''}
+          <div class="card-footer">
+            ${user.role === 'salesman' && pendingNodes.length > 0 ? `<button class="btn btn-warning btn-sm" onclick="event.stopPropagation();openDelayApply('${p.id}')">申请延期</button>` : ''}
+            ${user.role === 'admin' ? `<a class="btn btn-outline btn-sm" href="project-edit.html?id=${p.id}" onclick="event.stopPropagation()" style="text-decoration:none">编辑</a>` : ''}
+            ${user.role === 'admin' ? `<a class="btn btn-outline btn-sm" href="delay-list.html?projectId=${p.id}" onclick="event.stopPropagation()" style="text-decoration:none">延期审批</a>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function viewDetail(id) {
+      window.location.href = 'project-detail.html?id=' + id;
+    }
+
+    // ==================== 延期申请弹窗 ====================
+    function openDelayApply(projectId) {
+      const project = MOCK.projects.find(p => p.id === projectId);
+      if (!project) return;
+      const nodes = getNodesWithOverdue(project);
+      const pendingNodes = nodes.filter(n => n.collectStatus === '待回款');
+
+      if (pendingNodes.length === 0) {
+        showToast('该项目没有可申请延期的节点');
+        return;
+      }
+
+      document.getElementById('delayApplyContent').innerHTML = `
+        <div class="modal-title">申请延期 — ${project.projectName}</div>
+        <form onsubmit="submitDelayApply(event, '${project.id}')">
+          <div class="form-group">
+            <label class="form-label required">选择收款节点（可多选，每个节点需单独填写延期信息）</label>
+            <div style="background:#f7f8fa;border-radius:8px;padding:8px" id="delayNodeList">
+              ${pendingNodes.map((n, i) => `
+                <div class="delay-node-item" style="border-bottom:1px solid #eee;padding:8px 0" data-node-id="${n.id}">
+                  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:0">
+                    <input type="checkbox" name="delayNode" value="${n.id}" onchange="toggleDelayNodeFields('${n.id}', this)" style="accent-color:#1677ff">
+                    <span style="flex:1">${n.planDate} — ¥${formatMoney(n.amount)} ${n.overdueStatus === '已逾期' ? '<span style="color:#ff4d4f;font-size:11px">(已逾期)</span>' : ''}</span>
+                  </label>
+                  <div class="delay-node-fields" id="fields_${n.id}" style="display:none;margin-top:8px;padding-left:24px">
+                    <div class="form-group" style="margin-bottom:8px">
+                      <label class="form-label" style="font-size:12px">延期后时间 <span style="color:#ff4d4f">*</span></label>
+                      <input class="form-input delay-date" type="date" style="font-size:13px;padding:8px 10px" data-node="${n.id}" data-required>
+                      <div class="form-error">请选择延期后时间</div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                      <label class="form-label" style="font-size:12px">申请原因 <span style="color:#ff4d4f">*</span></label>
+                      <textarea class="form-textarea delay-reason" style="font-size:13px;min-height:60px" placeholder="请说明该节点延期原因" data-node="${n.id}" data-required></textarea>
+                      <div class="form-error">请填写申请原因</div>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="form-error" id="nodeError">请至少选择一个节点</div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">提交延期申请</button>
+        </form>
+        <div style="text-align:center;margin-top:10px">
+          <span style="color:#999;font-size:13px;cursor:pointer" onclick="closeModal('delayApplyModal')">取消</span>
+        </div>
+      `;
+      openModal('delayApplyModal');
+    }
+
+    // 切换节点字段展开/折叠
+    function toggleDelayNodeFields(nodeId, checkbox) {
+      const fields = document.getElementById('fields_' + nodeId);
+      if (fields) {
+        fields.style.display = checkbox.checked ? 'block' : 'none';
+      }
+    }
+
+    function submitDelayApply(e, projectId) {
+      e.preventDefault();
+      const form = e.target;
+
+      const checkedNodes = form.querySelectorAll('input[name="delayNode"]:checked');
+      if (checkedNodes.length === 0) {
+        document.getElementById('nodeError').style.display = 'block';
+        showToast('请至少选择一个节点');
+        return;
+      }
+      document.getElementById('nodeError').style.display = 'none';
+
+      const project = MOCK.projects.find(p => p.id === projectId);
+      let errorMsg = '';
+
+      checkedNodes.forEach(cb => {
+        const nodeId = cb.value;
+        const node = project.nodes.find(n => n.id === nodeId);
+        if (!node) return;
+
+        // 获取该节点对应的延期后时间和申请原因
+        const dateInput = form.querySelector(`.delay-date[data-node="${nodeId}"]`);
+        const reasonInput = form.querySelector(`.delay-reason[data-node="${nodeId}"]`);
+
+        const newDate = dateInput ? dateInput.value : '';
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+
+        if (!newDate) {
+          errorMsg = '请为每个选中的节点选择延期后时间';
+          if (dateInput) {
+            dateInput.closest('.form-group').classList.add('error');
+          }
+          return;
+        }
+        if (!reason) {
+          errorMsg = '请为每个选中的节点填写申请原因';
+          if (reasonInput) {
+            reasonInput.closest('.form-group').classList.add('error');
+          }
+          return;
+        }
+        if (newDate <= node.planDate) {
+          errorMsg = '延期后时间必须晚于原计划时间';
+          return;
+        }
+
+        const nodeIdx = (project.nodes || []).indexOf(node) + 1;
+        MOCK.delayApprovals.push({
+          id: 'D' + String(MOCK.delayApprovals.length + 1).padStart(3, '0'),
+          projectId: project.id,
+          nodeId: node.id,
+          projectName: project.projectName,
+          nodeInfo: `第${nodeIdx}期（¥${formatMoney(node.amount)}）`,
+          applicant: user.id,
+          applicantName: user.name,
+          originalDate: node.planDate,
+          newDate: newDate,
+          reason: reason,
+          status: '待审批',
+          opinion: '',
+          approver: '',
+          approverName: '',
+          approvalTime: ''
+        });
+      });
+
+      if (errorMsg) {
+        showToast(errorMsg);
+        return;
+      }
+
+      closeModal('delayApplyModal');
+      showToast(`延期申请已提交（${checkedNodes.length}个节点），请等待审批`);
+      filterProjects();
+    }
+
+    // ==================== Excel导入 ====================
+    function mockImport() {
+      const resultDiv = document.getElementById('importResult');
+      resultDiv.style.display = 'block';
+      resultDiv.className = 'import-result success';
+      resultDiv.innerHTML = '<div style="font-weight:500">✅ 导入成功！成功导入 3 条，失败 0 条</div>';
+      const newProjects = [
+        { id: 'P' + String(MOCK.projects.length + 1).padStart(3, '0'), region: '西南', projectNo: 'PRJ-2026-013', projectName: '重庆渝北区智慧交通项目', projectType: '工程', contractFile: '重庆智慧交通-合同.pdf', collector: 'u5', remark: 'Excel导入', nodes: [{ id: 'N' + String(MOCK.projects.reduce((s,p) => s + p.nodes.length, 0) + 1).padStart(3, '0'), amount: 2500000, planDate: '2026-08-01', collectStatus: '待回款', receivedAmount: 0, receivedDate: '' }] },
+        { id: 'P' + String(MOCK.projects.length + 2).padStart(3, '0'), region: '华中', projectNo: 'PRJ-2026-014', projectName: '长沙岳麓区智慧校园项目', projectType: '集采', contractFile: '长沙智慧校园-采购合同.pdf', collector: 'u2', remark: 'Excel导入', nodes: [{ id: 'N' + String(MOCK.projects.reduce((s,p) => s + p.nodes.length, 0) + 2).padStart(3, '0'), amount: 860000, planDate: '2026-07-20', collectStatus: '待回款', receivedAmount: 0, receivedDate: '' }] },
+      ];
+      MOCK.projects.push(...newProjects);
+      showToast('导入成功');
+      setTimeout(() => {
+        closeModal('importModal');
+        resultDiv.style.display = 'none';
+        resultDiv.className = '';
+        updateBadge();
+        filterProjects();
+      }, 1200);
+    }
+
+    function downloadTemplate() {
+      showToast('模板下载中，请稍候...');
+    }
+
+    // 初始化
+    filterProjects();
+
+    // URL参数处理
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('filter') === 'overdue') {
+      document.getElementById('filterOverdue').value = '已逾期';
+      filterProjects();
+    }
+    if (params.get('filter') === 'today') {
+      switchTab('pending', document.querySelector('#statusTabs .tab-item[data-status="pending"]'));
+    }
+  </script>
+</body>
+</html>

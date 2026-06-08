@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>消息中心</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="dashboard.html" class="navbar-back">←</a>
+      <div class="navbar-title">消息中心</div>
+    </div>
+    <span class="navbar-action" id="markAllRead" onclick="markAllRead()">全部已读</span>
+  </nav>
+
+  <!-- 类型Tab -->
+  <div class="tabs">
+    <div class="tab-item active" data-type="all" onclick="switchTab('all', this)">全部</div>
+    <div class="tab-item" data-type="催收提醒" onclick="switchTab('催收提醒', this)">催收提醒<span class="tab-badge" id="collectBadge">0</span></div>
+    <div class="tab-item" data-type="审批通知" onclick="switchTab('审批通知', this)">审批通知</div>
+    <div class="tab-item" data-type="回款通知" onclick="switchTab('回款通知', this)">回款通知</div>
+    <div class="tab-item" data-type="系统通知" onclick="switchTab('系统通知', this)">系统通知</div>
+  </div>
+
+  <div style="background:#fff" id="notifList" class="main-content" style="padding:0">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal-overlay center" id="detailModal">
+    <div class="modal-content">
+      <div class="modal-title" id="detailTitle"></div>
+      <div style="font-size:13px;color:#666;margin-bottom:8px" id="detailType"></div>
+      <div style="font-size:14px;color:#333;line-height:1.7" id="detailContent"></div>
+      <div style="font-size:12px;color:#bbb;margin-top:12px" id="detailTime"></div>
+      <div style="text-align:center;margin-top:16px">
+        <button class="btn btn-outline" onclick="closeModal('detailModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    let currentType = 'all';
+
+    function updateBadges() {
+      const filtered = getFilteredNotifications();
+      const collectUnread = filtered.filter(n => n.type === '催收提醒' && !n.read).length;
+      document.getElementById('collectBadge').textContent = collectUnread;
+    }
+    updateBadges();
+
+    function switchTab(type, el) {
+      currentType = type;
+      document.querySelectorAll('.tabs .tab-item').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      renderList();
+    }
+
+    function renderList() {
+      const container = document.getElementById('notifList');
+      let data = getFilteredNotifications();
+
+      if (currentType !== 'all') {
+        data = data.filter(n => n.type === currentType);
+      }
+
+      // 排序：未读在前，时间倒序
+      data.sort((a, b) => {
+        if (a.read !== b.read) return a.read ? 1 : -1;
+        return b.time.localeCompare(a.time);
+      });
+
+      if (data.length === 0) {
+        container.innerHTML = renderEmpty('暂无消息通知');
+        return;
+      }
+
+      container.innerHTML = data.map(n => `
+        <div class="notification-item ${n.read ? '' : 'unread'}" onclick="viewDetail('${n.id}')">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;margin-bottom:4px">
+                ${!n.read ? '<span class="notif-dot"></span>' : ''}
+                ${getNotificationTypeTag(n.type)}
+              </div>
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-content">${n.content}</div>
+            </div>
+          </div>
+          <div class="notif-time">${n.time}</div>
+        </div>
+      `).join('');
+    }
+
+    function viewDetail(id) {
+      const n = MOCK.notifications.find(x => x.id === id);
+      if (!n) return;
+
+      n.read = true;
+      document.getElementById('detailTitle').textContent = n.title;
+      document.getElementById('detailType').innerHTML = getNotificationTypeTag(n.type);
+      document.getElementById('detailContent').textContent = n.content;
+      document.getElementById('detailTime').textContent = n.time;
+      openModal('detailModal');
+      updateBadges();
+      renderList();
+    }
+
+    function markAllRead() {
+      const filtered = getFilteredNotifications();
+      filtered.forEach(n => { n.read = true; });
+      updateBadges();
+      renderList();
+      showToast('全部已读');
+    }
+
+    renderList();
+  </script>
+</body>
+</html>

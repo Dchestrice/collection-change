@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>编辑项目</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../css/common.css">
+</head>
+<body>
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <a href="javascript:history.back()" class="navbar-back">←</a>
+      <div class="navbar-title" id="pageTitle">新建项目</div>
+    </div>
+    <span class="navbar-action" onclick="openModal('importModal')" style="font-size:13px;color:#52c41a">📥 Excel导入</span>
+  </nav>
+
+  <div class="main-content">
+    <form id="projectForm" onsubmit="saveProject(event)">
+      <!-- 基础信息 -->
+      <div class="detail-section">
+        <div class="detail-section-title">项目基础信息</div>
+
+        <div class="form-group">
+          <label class="form-label required">区域</label>
+          <select class="form-select" id="region" data-required>
+            <option value="">请选择区域</option>
+            <option>华北</option><option>华东</option><option>华南</option><option>华中</option>
+            <option>山东</option><option>西南</option><option>行拓1组</option><option>行拓2组</option><option>智能化</option>
+          </select>
+          <div class="form-error">请选择区域</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required">项目名称</label>
+          <input class="form-input" id="projectName" placeholder="请输入项目名称" data-required>
+          <div class="form-error">请输入项目名称</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required">项目编号</label>
+          <input class="form-input" id="projectNo" placeholder="如 PRJ-2026-XXX" data-required>
+          <div class="form-error">请输入项目编号</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required">项目类型</label>
+          <select class="form-select" id="projectType" data-required>
+            <option value="">请选择类型</option>
+            <option value="工程">工程</option>
+            <option value="集采">集采</option>
+          </select>
+          <div class="form-error">请选择项目类型</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">合同文件</label>
+          <div class="upload-area" id="contractUpload" onclick="mockUploadContract()">
+            <div style="font-size:14px;color:#1677ff;margin-bottom:4px">📎 点击上传合同文件</div>
+            <div style="font-size:11px;color:#999" id="contractFileName">支持 PDF、Word 格式</div>
+          </div>
+          <input type="hidden" id="contractFile" value="">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required">催收负责人</label>
+          <select class="form-select" id="collector" data-required>
+            <option value="">请选择负责人</option>
+          </select>
+          <div class="form-error">请选择负责人</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">备注说明</label>
+          <textarea class="form-textarea" id="remark" placeholder="可选填备注信息"></textarea>
+        </div>
+      </div>
+
+      <!-- 收款节点 -->
+      <div class="detail-section">
+        <div class="detail-section-title">收款节点 <span id="nodeCount">（0/6个）</span></div>
+        <div id="nodesContainer"></div>
+        <button type="button" class="btn btn-outline btn-block" onclick="addNode()" id="addNodeBtn" style="margin-top:8px">+ 添加收款节点</button>
+        <div style="font-size:11px;color:#999;margin-top:4px">最多添加6个收款节点</div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" style="margin-bottom:20px">保存项目</button>
+    </form>
+  </div>
+
+  <!-- Excel导入弹窗 -->
+  <div class="modal-overlay center" id="importModal">
+    <div class="modal-content">
+      <div class="modal-title">Excel导入项目</div>
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;margin-bottom:12px">📁</div>
+        <div style="font-size:13px;color:#666;margin-bottom:16px">支持 .xlsx / .xls 格式文件</div>
+        <div class="upload-area" onclick="mockExcelImport()">
+          <div style="font-size:14px;color:#1677ff;margin-bottom:4px">点击选择文件或拖拽到此处</div>
+          <div style="font-size:11px;color:#999">单次最多导入 500 条记录</div>
+        </div>
+        <div id="importResult" style="display:none"></div>
+      </div>
+      <div style="text-align:center;margin-top:12px">
+        <span style="color:#999;font-size:13px;cursor:pointer" onclick="closeModal('importModal')">关闭</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/mock.js"></script>
+  <script src="../js/common.js"></script>
+  <script>
+    const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!user) window.location.href = 'login.html';
+
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('id');
+    const isEdit = !!projectId;
+    let project = null;
+    let nodes = [];
+
+    if (isEdit) {
+      document.getElementById('pageTitle').textContent = '编辑项目';
+      project = MOCK.projects.find(p => p.id === projectId);
+      if (!project) {
+        showToast('项目不存在');
+        setTimeout(() => { window.location.href = 'project-list.html'; }, 500);
+      }
+    }
+
+    // 构建催收负责人选项（业务员）
+    (function() {
+      const sel = document.getElementById('collector');
+      MOCK.users.filter(u => u.role === 'salesman').forEach(u => {
+        sel.innerHTML += `<option value="${u.id}">${u.name}</option>`;
+      });
+    })();
+
+    // 填充编辑数据
+    if (project) {
+      document.getElementById('region').value = project.region;
+      document.getElementById('projectName').value = project.projectName;
+      document.getElementById('projectNo').value = project.projectNo;
+      document.getElementById('projectType').value = project.projectType;
+      document.getElementById('collector').value = project.collector;
+      document.getElementById('remark').value = project.remark || '';
+      document.getElementById('contractFile').value = project.contractFile || '';
+      if (project.contractFile) {
+        document.getElementById('contractFileName').textContent = '已上传：' + project.contractFile;
+        document.getElementById('contractUpload').classList.add('has-file');
+      }
+      nodes = JSON.parse(JSON.stringify(project.nodes || []));
+    }
+
+    function addNode(nodeData) {
+      if (nodes.length >= 6) {
+        showToast('最多只能添加6个收款节点');
+        return;
+      }
+      const node = nodeData || {
+        id: 'N' + Date.now(),
+        amount: 0,
+        planDate: '',
+        collectStatus: '待回款',
+        receivedAmount: 0,
+        receivedDate: ''
+      };
+      nodes.push(node);
+      renderNodes();
+    }
+
+    function removeNode(index) {
+      nodes.splice(index, 1);
+      renderNodes();
+    }
+
+    function renderNodes() {
+      const container = document.getElementById('nodesContainer');
+      document.getElementById('nodeCount').textContent = `（${nodes.length}/6个）`;
+      document.getElementById('addNodeBtn').style.display = nodes.length >= 6 ? 'none' : 'block';
+
+      if (nodes.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:#ccc;font-size:13px">暂无收款节点，请点击下方按钮添加</div>';
+        return;
+      }
+
+      container.innerHTML = nodes.map((n, idx) => `
+        <div class="node-card" style="position:relative">
+          <div style="position:absolute;top:8px;right:8px;cursor:pointer;font-size:16px" onclick="removeNode(${idx})" title="删除节点">✕</div>
+          <div class="node-header">
+            <span class="node-title">第${idx + 1}期</span>
+            ${n.collectStatus !== '待回款' ? getCollectStatusTag(n.collectStatus) : ''}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:12px">应收金额（元）</label>
+              <input class="form-input" type="number" value="${n.amount || ''}" placeholder="0.00"
+                onchange="nodes[${idx}].amount=parseFloat(this.value)||0" style="font-size:13px;padding:8px 10px">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" style="font-size:12px">计划收款时间</label>
+              <input class="form-input" type="date" value="${n.planDate || ''}"
+                onchange="nodes[${idx}].planDate=this.value" style="font-size:13px;padding:8px 10px">
+            </div>
+          </div>
+          ${n.collectStatus === '已回款' ? `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" style="font-size:12px">到账金额（元）</label>
+                <input class="form-input" type="number" value="${n.receivedAmount || ''}" placeholder="0.00"
+                  onchange="nodes[${idx}].receivedAmount=parseFloat(this.value)||0" style="font-size:13px;padding:8px 10px">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" style="font-size:12px">到账时间</label>
+                <input class="form-input" type="date" value="${n.receivedDate || ''}"
+                  onchange="nodes[${idx}].receivedDate=this.value" style="font-size:13px;padding:8px 10px">
+              </div>
+            </div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function saveProject(e) {
+      e.preventDefault();
+      const form = document.getElementById('projectForm');
+
+      // 基本校验
+      const region = document.getElementById('region').value;
+      const projectName = document.getElementById('projectName').value.trim();
+      const projectNo = document.getElementById('projectNo').value.trim();
+      const projectType = document.getElementById('projectType').value;
+      const collector = document.getElementById('collector').value;
+      const remark = document.getElementById('remark').value.trim();
+      const contractFile = document.getElementById('contractFile').value;
+
+      if (!region) { showToast('请选择区域'); return; }
+      if (!projectName) { showToast('请输入项目名称'); return; }
+      if (!projectNo) { showToast('请输入项目编号'); return; }
+      if (!projectType) { showToast('请选择项目类型'); return; }
+      if (!collector) { showToast('请选择催收负责人'); return; }
+
+      // 校验节点
+      for (let i = 0; i < nodes.length; i++) {
+        if (!nodes[i].amount || nodes[i].amount <= 0) {
+          showToast(`第${i + 1}期请输入有效的应收金额`);
+          return;
+        }
+        if (!nodes[i].planDate) {
+          showToast(`第${i + 1}期请选择计划收款时间`);
+          return;
+        }
+      }
+
+      const data = {
+        region, projectName, projectNo, projectType, contractFile, collector, remark,
+        nodes: nodes.map(n => ({
+          ...n,
+          id: n.id || ('N' + Date.now() + Math.random()),
+          receivedAmount: n.receivedAmount || 0,
+          receivedDate: n.receivedDate || '',
+          collectStatus: n.collectStatus || '待回款'
+        }))
+      };
+
+      if (isEdit && project) {
+        // 更新现有项目
+        project.region = data.region;
+        project.projectName = data.projectName;
+        project.projectNo = data.projectNo;
+        project.projectType = data.projectType;
+        project.contractFile = data.contractFile;
+        project.collector = data.collector;
+        project.remark = data.remark;
+        project.nodes = data.nodes;
+        showToast('项目已更新');
+      } else {
+        // 创建新项目
+        const newProject = {
+          id: 'P' + String(MOCK.projects.length + 1).padStart(3, '0'),
+          ...data
+        };
+        MOCK.projects.push(newProject);
+        showToast('项目创建成功');
+      }
+
+      setTimeout(() => {
+        window.location.href = 'project-list.html';
+      }, 500);
+    }
+
+    function mockUploadContract() {
+      const mockFiles = ['项目合同-v1.pdf', '采购合同-2026.docx', '服务协议-终版.pdf'];
+      const randomFile = mockFiles[Math.floor(Math.random() * mockFiles.length)];
+      document.getElementById('contractFile').value = randomFile;
+      document.getElementById('contractFileName').textContent = '已上传：' + randomFile;
+      document.getElementById('contractUpload').classList.add('has-file');
+      showToast('合同文件已上传（模拟）');
+    }
+
+    function mockExcelImport() {
+      const resultDiv = document.getElementById('importResult');
+      resultDiv.style.display = 'block';
+      resultDiv.className = 'import-result success';
+      resultDiv.innerHTML = '<div style="font-weight:500">✅ 导入成功！成功导入 3 条，失败 0 条</div>';
+      showToast('Excel导入成功（模拟）');
+      setTimeout(() => {
+        closeModal('importModal');
+        resultDiv.style.display = 'none';
+      }, 1000);
+    }
+
+    // 初始化
+    renderNodes();
+  </script>
+</body>
+</html>
